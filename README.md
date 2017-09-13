@@ -1,4 +1,5 @@
-**eTunes**: the declarative, version-controlled music library manager.
+**eTunes**: the declarative, version-controlled music library manager
+for Emacs.
 
 ## Summary
 
@@ -24,8 +25,8 @@ metadata is an accurate reflection of your library (or, depending on
 your perspective, that your library is an accurate reflection of your
 carefully curated metadata).
 
-eTunes of course provides many of the trappings of a standard media
-player:
+But eTunes of course also provides many of the trappings of a standard
+media player:
 
 * playing your music, of course
 * browse music by album, artist, year, or other tags
@@ -35,3 +36,5 @@ player:
 * creation and management of playlists
 * programmatic API for massive automated refactoring of your library,
   directly in Emacs Lisp
+* no binary data except your music files (which are treated as
+  second-class citizens with regard to metadata)
