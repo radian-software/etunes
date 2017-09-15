@@ -110,7 +110,52 @@ is not required. It is expanded relative to `etunes-media-dir'."
   :type '(choice
           (const etunes-default-media-filename-format
                  :tag "Default format")
-          (function :tag "Custom format")))
+          (function :tag "Custom format"))
+  :group 'etunes)
+
+(defun etunes-media-filename (metadata)
+  "Get the filename for a track with given METADATA alist.
+See `etunes-media-filename-format'."
+  (funcall etunes-media-filename-format metadata))
+
+(defcustom etunes-metadata-extension ".el"
+  "Filename extension for metadata files, a string."
+  :type 'string
+  :group 'etunes)
+
+(defun etunes-metadata-filename (album)
+  "Get the filename for the ALBUM with given name, a string.
+The path is relative to `etunes-metadata-dir'. See also
+`etunes-metadata-extension'."
+  (concat album etunes-metadata-extension))
+
+(defun etunes-metadata-path (album)
+  "Get the full path for the ALBUM with given name, a string."
+  (etunes-path-join
+   user-emacs-directory etunes-dir etunes-metadata-dir
+   (etunes-metadata-filename album)))
+
+;;;; Metadata I/O
+
+(defun etunes-read-external-metadata (album)
+  "Return the metadata alist for the ALBUM with given name, a string.
+Return nil if the metadata file for ALBUM does not exist, is not
+readable, or is malformed."
+  (with-temp-buffer
+    (ignore-errors
+      (insert-file-contents-literally
+       (etunes-metadata-path album))
+      (read (current-buffer)))))
+
+(defun etunes-write-external-metadata (album metadata)
+  "For the ALBUM with given name, write METADATA alist to disk.
+Throw an error if this fails. Create any necessary parent
+directories."
+  (let* ((file (etunes-metadata-path album))
+         (directory (file-name-directory file)))
+    (make-directory directory 'parents)
+    (with-temp-file file
+      (pp metadata (current-buffer)))))
 
 ;;;; Closing remarks
 
