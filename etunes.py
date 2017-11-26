@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 
 import collections
+import importlib.util
 import json
-import mutagen
 import os
+import sys
 import yaml
-
-from etunes_plugin_default import (
-    read_embedded_metadata, write_embedded_metadata)
 
 # Exceptions
 
@@ -17,6 +15,7 @@ class MalformedMetadataError(Exception):
 # Configuration
 
 HOME_DIR = os.path.expanduser('~')
+ETUNES_SRC_DIR = os.path.split(__file__)[0]
 
 class Config:
 
@@ -28,6 +27,7 @@ class Config:
         self.etunes_metadata_dir = 'metadata'
         self.etunes_playlist_dir = 'playlist'
         self.file_extension = '.yml'
+        self.user_plugin_file = 'etunes_plugin.py'
 
     def set_emacs_dir(self, emacs_dir):
         self.emacs_dir = emacs_dir
@@ -50,6 +50,9 @@ class Config:
     def set_file_extension(self, file_extension):
         assert file_extension in ['.json', '.yml']
         self.file_extension = file_extension
+
+    def set_user_plugin_file(self, user_plugin_file):
+        self.user_plugin_file = user_plugin_file
 
     def get_album_artwork_filepath(self, artwork_filename):
         return os.path.join(
@@ -81,6 +84,13 @@ class Config:
             self.etunes_dir,
             self.etunes_playlist_dir,
             playlist_name + self.file_extension)
+
+    def get_user_plugin_filepath(self):
+        return os.path.join(
+            HOME_DIR,
+            self.emacs_dir,
+            self.etunes_dir,
+            self.user_plugin_file)
 
 # Filesystem utilities
 
@@ -198,3 +208,45 @@ def write_album_metadata(album, config):
         'songs': songs_metadata,
     }
     write_data_file(filepath, metadata)
+
+# Plugins
+
+def load_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+def load_plugin(config):
+    user_plugin_filepath = config.get_user_plugin_filepath()
+    default_plugin_filepath = os.path.join(
+        ETUNES_SRC_DIR, 'etunes_plugin_default.py')
+    if os.path.isfile(user_plugin_filepath):
+        return load_module('etunes_plugin', user_plugin_filepath)
+    else:
+        return load_module('etunes_plugin_default', default_plugin_filepath)
+
+# Command-line interface
+
+def cli(args):
+    config = Config()
+    for arg in args:
+        for flag, method in (
+                ('--emacs-dir=', Config.set_emacs_dir),
+                ('--etunes-dir=', Config.set_etunes_dir),
+                ('--etunes-artwork-dir=', Config.set_etunes_artwork_dir),
+                ('--etunes-media-dir=', Config.set_etunes_media_dir),
+                ('--etunes-metadata-dir=', Config.set_etunes_metadata_dir),
+                ('--etunes-playlist-dir=', Config.set_etunes_playlist_dir),
+                ('--file-extension=', Config.set_file_extension),
+                ('--user-plugin-file=', Config.set_user_plugin_file)
+        ):
+            if arg.startswith(flag):
+                val = arg[len(flag):]
+                method(config, val)
+                break
+    print('ok')
+    print('output')
+
+if __name__ == '__main__':
+    cli(sys.argv[1:])
