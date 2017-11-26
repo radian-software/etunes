@@ -6,7 +6,7 @@ import mutagen
 import os
 import yaml
 
-from etunes_translate_default import (
+from etunes_plugin_default import (
     read_embedded_metadata, write_embedded_metadata)
 
 # Exceptions
@@ -82,6 +82,11 @@ class Config:
             self.etunes_playlist_dir,
             playlist_name + self.file_extension)
 
+# Filesystem utilities
+
+def ensure_parent_directories(filepath):
+    os.makedirs(os.path.split(filepath)[0], exist_ok=True)
+
 # External metadata
 
 def read_data_file(filename):
@@ -98,11 +103,12 @@ def write_data_file(filename, metadata):
     if filename.endswith('.json'):
         dump = json.dump
     elif filename.endswith('.yml'):
-        dump = yaml.dump
+        dump = lambda *args: yaml.dump(*args, default_flow_style=False)
     else:
         assert False, 'Unknown metadata file type: ' + filename
+    ensure_parent_directories(filename)
     tmp_filename = filename + '.tmp'
-    with open(tmp_filename) as f:
+    with open(tmp_filename, 'w') as f:
         dump(metadata, f)
     os.rename(tmp_filename, filename)
 

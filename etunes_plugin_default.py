@@ -1,4 +1,4 @@
-import mutagen.id3 as id3
+import mutagen as mutagen
 
 def get_id3_str(dictlike, key):
     try:
@@ -71,7 +71,8 @@ def write_basic_metadata_to_mutagen(f, metadata):
     f.save()
 
 def read_embedded_metadata(filename):
-    return read_basic_metadata_from_mutagen(id3.ID3(filename))
+    return read_basic_metadata_from_mutagen(mutagen.File(filename).tags)
 
 def write_embedded_metadata(filename, metadata):
-    return write_basic_metadata_to_mutagen(id3.ID3(filename), metadata)
+    return write_basic_metadata_to_mutagen(
+        mutagen.File(filename).tags, metadata)
