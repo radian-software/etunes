@@ -103,7 +103,9 @@ def write_data_file(filename, metadata):
     if filename.endswith('.json'):
         dump = json.dump
     elif filename.endswith('.yml'):
-        dump = lambda *args: yaml.dump(*args, default_flow_style=False)
+        def dump(*args):
+            yaml.dump(
+                *args, default_flow_style=False, default_style='|')
     else:
         assert False, 'Unknown metadata file type: ' + filename
     ensure_parent_directories(filename)
