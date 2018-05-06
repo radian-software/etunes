@@ -1,6 +1,6 @@
 # Preview
 
-Specific the location of `library.yml`, otherwise `etunes` recurses
+Specify the location of `library.yml`, otherwise `etunes` recurses
 upwards from the working directory to find it.
 
     $ etunes --library=<library.yml> ...
@@ -98,8 +98,7 @@ format. This can be specified by the flag `--library=<library.yml>`,
 or the environment variable `$ETUNES_LIBRARY`. If neither is given
 then `etunes` aborts.
 
-Create a new `library.yml` file with defaults. If a file already
-exists then
+Create a new `library.yml` file with defaults:
 
     $ etunes init
 
@@ -107,7 +106,7 @@ exists then
 
 Usage:
 
-    $ etunes query [<json> | @query.json]
+    $ etunes query [<json> | @query.json | -]
 
 Response is output to stdout in JSON format. Return code is always 0
 except in the case of an internal error in `etunes`. Malformed or
@@ -171,3 +170,53 @@ key `allow-no-matches` is true. Response is a list of songs matched by
 the query, which are maps with the keys specified by `get`, unless
 boolean key `quiet` is true, in which case response is the number of
 songs matched. The values reflect any updates by `set`.
+
+# Query specification
+
+A query is a single JSON map. This map is keyed by object type
+(option, song). Each subpart matches some set of the object in
+question (controlled by filters), and then performs an operation on
+all of them. Here is an example query:
+
+    {
+        "options": [
+            {
+                "name": "deduplication-threshold",
+                "set": "0.75"
+            },
+            {
+                "name": "media-directory"
+            }
+        ],
+        "media"
+    }
+
+And the resulting response could be:
+
+    {
+        "success": true,
+        "options": [
+            {
+                "name": "deduplication-threshold",
+                "value": "0.75",
+                "set": "0.75"
+            },
+            {
+                "name": "media-directory",
+                "value": "media"
+            }
+        ]
+    }
+
+Errors that could occur:
+
+    {
+        "success": false,
+        "errors": [
+            {
+                "type": "option/does-not-exist",
+                "name": "duplication-threshold",
+                "message": "option does not exist: duplication-threshold"
+            }
+        ]
+    }
