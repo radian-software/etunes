@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+
+import etunes.io
+
+import sys
+
+if __name__ == "__main__":
+    exec_name = "etunes"
+    args = sys.argv[1:]
+    sys.exit(etunes.main(etunes.io.StandardIO(), exec_name, args))
