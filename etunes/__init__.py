@@ -23,6 +23,14 @@ class ErrorWithUsage(Exception):
         self.message = message
         self.usage = usage
 
+class ErrorWithDescription(Exception):
+    """
+    Like Error, but additionally includes an extended description.
+    """
+    def __init__(self, message, description):
+        self.message = message
+        self.description = description
+
 def locate_dominating_file(io, filename, directory=None):
     """
     Find a file or directory with the given name, either in the given
@@ -174,8 +182,10 @@ def handle_args(io, args):
     if library is None:
         library = locate_dominating_file(io, DEFAULT_LIBRARY_FILENAME)
         if library is None:
-            raise Error("cannot find file {} in working or parent directories"
-                        .format(repr(DEFAULT_LIBRARY_FILENAME)))
+            raise ErrorWithDescription(
+                "cannot find file {} in working or parent directories"
+                .format(repr(DEFAULT_LIBRARY_FILENAME)),
+                "hint: to create, run 'etunes init'")
     options = file_to_yaml(library)
     validate_options(options, library)
 
@@ -191,4 +201,8 @@ def main(io, exec_name, args):
         print("{}: {}".format(exec_name, e.message), file=io.stderr)
         print(file=io.stderr)
         print("usage: {}".format(e.usage))
+    except ErrorWithDescription as e:
+        print("{}: {}".format(exec_name, e.message), file=io.stderr)
+        print(file=io.stderr)
+        print(e.description)
     return 1
