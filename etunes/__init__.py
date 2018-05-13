@@ -1,3 +1,4 @@
+import shlex
 import yaml
 
 class Error(Exception):
@@ -30,6 +31,14 @@ class ErrorWithDescription(Exception):
     def __init__(self, message, description):
         self.message = message
         self.description = description
+
+def remove_newline(s):
+    """
+    Remove a trailing newline from the string, if one exists.
+    """
+    if s.endswith("\n"):
+        return s[:-1]
+    return s
 
 def locate_dominating_file(io, filename, directory=None):
     """
@@ -75,10 +84,39 @@ def yaml_to_file(io, obj, filename):
         raise Error("could not write to YAML file {}: {}"
                     .format(repr(filename), str(e)))
 
+def git_not_installed_error(e):
+    """
+    Given an error object, wrap it so that a hint about Git needing to
+    be installed is also displayed.
+    """
+    return ErrorWithDescription(
+        "unexpected failure while running 'git': {}".format(str(e)),
+        "note: Git must be installed in order to use eTunes")
+
+def git_config_value(io, key):
+    """
+    Return the value for the given Git configuration key, as a
+    string. If there is no value, throw an error and suggest to the
+    user how they can set the key.
+    """
+    try:
+        result = io.run(["git", "config", "--get", key],
+                        stdout=io.PIPE)
+        if result.returncode != 0:
+            raise ErrorWithDescription(
+                "Git configuration value {} is not set".format(repr(key)),
+                "hint: to set, run 'git config {} <value>'"
+                .format(shlex.quote(key)))
+        return remove_newline(result.stdout.decode())
+    except OSError as e:
+        raise git_not_installed_error(e)
+
 DEFAULT_LIBRARY_FILENAME = "etunes.yml"
 
 DEFAULT_LIBRARY = {
     "deduplication-threshold": "0.75",
+    "git-email": lambda io: git_config_value(io, "user.email"),
+    "git-name": lambda io: git_config_value(io, "user.name"),
     "media-path": "media/{album-artist}/{album}/{title}.{ext}",
     "metadata-path": "metadata/{album-artist}/{album}.yml",
 }
@@ -135,7 +173,13 @@ def task_init(io, path=None):
     if io.exists(path) or io.islink(path):
         raise Error("cannot create library file, already exists: {}"
                     .format(repr(path)))
-    yaml_to_file(io, DEFAULT_LIBRARY, path)
+    options = {}
+    for key, val in DEFAULT_LIBRARY.items():
+        if callable(val):
+            options[key] = val(io)
+        else:
+            options[key] = val
+    yaml_to_file(io, options, path)
 
 def handle_args(io, args):
     literal = False
