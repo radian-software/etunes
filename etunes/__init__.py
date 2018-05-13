@@ -3,34 +3,31 @@ import yaml
 
 class Error(Exception):
     """
-    Error that should be printed to stderr, prefixed by the name of
-    the executable.
+    Error that should be printed to stderr. The messages are a list of
+    either messages, which are printed as is, or 2-tuples, where the
+    first element is a message type and the second element is the
+    message.
     """
-    def __init__(self, message):
-        self.message = message
+    def __init__(self, messages):
+        self.messages = messages
 
-class FancyError(Exception):
-    """
-    Error that should be printed to stderr as is.
-    """
-    def __init__(self, message):
-        self.message = message
+def error(message):
+    return Error([("etunes", message)])
 
-class ErrorWithUsage(Exception):
-    """
-    Like Error, but additionally includes a usage message.
-    """
-    def __init__(self, message, usage):
-        self.message = message
-        self.usage = usage
+def fancy_error(message):
+    return Error([message])
 
-class ErrorWithDescription(Exception):
-    """
-    Like Error, but additionally includes an extended description.
-    """
-    def __init__(self, message, description):
-        self.message = message
-        self.description = description
+def with_usage(e, usage):
+    if isinstance(e, Error):
+        return Error(e.messages + [("usage", usage)])
+    else:
+        return Error([str(e), ("usage", usage)])
+
+def with_extra(e, *hints):
+    if isinstance(e, Error):
+        return Error(e.messages + hints)
+    else:
+        return Error([str(e)] + hints)
 
 def remove_newline(s):
     """
@@ -66,10 +63,10 @@ def file_to_yaml(io, filename):
         with io.open(filename, "r") as f:
             return yaml.load(f)
     except FileNotFoundError as e:
-        raise Error("could not read YAML file {}: {}"
+        raise error("could not read YAML file {}: {}"
                     .format(repr(filename), str(e)))
     except yaml.YAMLError as e:
-        raise Error("malformed YAML file {}: {}"
+        raise error("malformed YAML file {}: {}"
                     .format(repr(filename), str(e)))
 
 def yaml_to_file(io, obj, filename):
@@ -81,7 +78,7 @@ def yaml_to_file(io, obj, filename):
         with io.open(filename, "w") as f:
             yaml.dump(obj, f, default_flow_style=False)
     except FileNotFoundError as e:
-        raise Error("could not write to YAML file {}: {}"
+        raise error("could not write to YAML file {}: {}"
                     .format(repr(filename), str(e)))
 
 def git_not_installed_error(e):
@@ -89,9 +86,9 @@ def git_not_installed_error(e):
     Given an error object, wrap it so that a hint about Git needing to
     be installed is also displayed.
     """
-    return ErrorWithDescription(
-        "unexpected failure while running 'git': {}".format(str(e)),
-        "note: Git must be installed in order to use eTunes")
+    return with_extra(
+        error("unexpected failure while running 'git': {}".format(str(e))),
+        ("note", "Git must be installed in order to use eTunes"))
 
 def git_config_value(io, key):
     """
@@ -103,10 +100,12 @@ def git_config_value(io, key):
         result = io.run(["git", "config", "--get", key],
                         stdout=io.PIPE)
         if result.returncode != 0:
-            raise ErrorWithDescription(
-                "Git configuration value {} is not set".format(repr(key)),
-                "hint: to set, run 'git config {} <value>'"
-                .format(shlex.quote(key)))
+            raise with_extra(
+                error("Git configuration value {} is not set"
+                      .format(repr(key))),
+                ("hint",
+                 "to set, run 'git config {} <value>'"
+                 .format(shlex.quote(key))))
         return remove_newline(result.stdout.decode())
     except OSError as e:
         raise git_not_installed_error(e)
@@ -155,14 +154,14 @@ def usage(subcommand=None):
 
 def validate_options(options, filename):
     if not isinstance(options, dict):
-        raise Error("library file {} does not contain map at top level"
+        raise error("library file {} does not contain map at top level"
                     .format(repr(filename)))
     for key, val in options.items():
         if not isinstance(key, str):
-            raise Error("library file {} contains non-string key: {}"
+            raise error("library file {} contains non-string key: {}"
                         .format(repr(filename), repr(key)))
         if not isinstance(val, str):
-            raise Error("library file {} contains non-string value: {}"
+            raise error("library file {} contains non-string value: {}"
                         .format(repr(filename), repr(val)))
 
 def task_init(io, path=None):
@@ -171,7 +170,7 @@ def task_init(io, path=None):
     if io.isdir(path):
         path = io.join(path, DEFAULT_LIBRARY_FILENAME)
     if io.exists(path) or io.islink(path):
-        raise Error("cannot create library file, already exists: {}"
+        raise error("cannot create library file, already exists: {}"
                     .format(repr(path)))
     options = {}
     for key, val in DEFAULT_LIBRARY.items():
@@ -199,37 +198,40 @@ def handle_args(io, args):
                     library = args[1]
                     args.pop(0)
                 else:
-                    raise ErrorWithUsage(
-                        "missing argument for flag '--library'", usage())
+                    raise with_usage(
+                        error("missing argument for flag '--library'"),
+                        usage())
             else:
-                raise ErrorWithUsage(
-                    "unrecognized flag: {}".format(repr(arg)), usage())
+                raise with_usage(
+                    error("unrecognized flag: {}".format(repr(arg))),
+                    usage())
         elif subcommand is None:
             if arg == "init":
                 subcommand = "init"
             else:
-                raise ErrorWithUsage(
-                    "unrecognized subcommand: {}".format(repr(arg)), usage())
+                raise with_usage(
+                    error("unrecognized subcommand: {}".format(repr(arg))),
+                    usage())
         elif subcommand == "init":
             if "path" not in config:
                 config["path"] = arg
             else:
-                raise ErrorWithUsage(
-                    "unexpected argument: {}".format(repr(arg)),
+                raise with_usage(
+                    error("unexpected argument: {}".format(repr(arg))),
                     usage("init"))
         args.pop(0)
     if subcommand is None:
-        raise ErrorWithUsage("no subcommand given", usage())
+        raise with_usage(error("no subcommand given"), usage())
     if subcommand == "init":
         task_init(io, path=config.get("path"))
         return
     if library is None:
         library = locate_dominating_file(io, DEFAULT_LIBRARY_FILENAME)
         if library is None:
-            raise ErrorWithDescription(
-                "cannot find file {} in working or parent directories"
-                .format(repr(DEFAULT_LIBRARY_FILENAME)),
-                "hint: to create, run 'etunes init'")
+            raise with_extra(
+                error("cannot find file {} in working or parent directories"
+                      .format(repr(DEFAULT_LIBRARY_FILENAME))),
+                ("hint", "to create, run 'etunes init'"))
     options = file_to_yaml(library)
     validate_options(options, library)
 
@@ -238,15 +240,11 @@ def main(io, exec_name, args):
         handle_args(io, args)
         return 0
     except Error as e:
-        print("{}: {}".format(exec_name, e.message), file=io.stderr)
-    except FancyError as e:
-        print(e.message, file=io.stderr)
-    except ErrorWithUsage as e:
-        print("{}: {}".format(exec_name, e.message), file=io.stderr)
-        print(file=io.stderr)
-        print("usage: {}".format(e.usage))
-    except ErrorWithDescription as e:
-        print("{}: {}".format(exec_name, e.message), file=io.stderr)
-        print(file=io.stderr)
-        print(e.description)
+        lines = []
+        for message in e.messages:
+            if isinstance(message, str):
+                lines.append(message)
+            else:
+                lines.append("{}: {}".format(*message))
+        print("\n".join(lines), file=io.stderr)
     return 1
