@@ -152,7 +152,27 @@ def usage(subcommand=None):
                  for subcommand in SUBCOMMANDS]
         return "etunes {}\n\nSubcommands:\n{}".format(USAGE, "\n".join(lines))
 
-def validate_options(options, filename):
+def get_option(io, options, key, filename):
+    val = options.get(key, DEFAULT_LIBRARY[key])
+    if callable(val):
+        try:
+            return val(io)
+        except Error as e:
+            raise with_extra(
+                e,
+                ("note",
+                 "error occurred while generating default value for option {}"
+                 .format(repr(key))),
+                ("hint",
+                 "set option directly in {}".format(repr(filename))))
+    else:
+        return val
+
+def decode_option(io, options, key, filename, decoder):
+    val = get_option(io, options, key, filename)
+    options[key] = decoder(val, key)
+
+def decode_options(io, options, filename):
     if not isinstance(options, dict):
         raise error("library file {} does not contain map at top level"
                     .format(repr(filename)))
@@ -163,6 +183,16 @@ def validate_options(options, filename):
         if not isinstance(val, str):
             raise error("library file {} contains non-string value: {}"
                         .format(repr(filename), repr(val)))
+    def decode_float(val, key):
+        try:
+            return float(val)
+        except ValueError:
+            raise error(("library file {} contains malformed "
+                         "floating-point value for key {}: {}")
+                        .format(repr(filename), repr(key), repr(val)))
+    decode_option(
+        io, options, "deduplication-threshold", filename, decode_float)
+    return options
 
 def task_init(io, path=None):
     if path is None:
@@ -233,7 +263,7 @@ def handle_args(io, args):
                       .format(repr(DEFAULT_LIBRARY_FILENAME))),
                 ("hint", "to create, run 'etunes init'"))
     options = file_to_yaml(library)
-    validate_options(options, library)
+    options = decode_options(io, options, library)
 
 def main(io, exec_name, args):
     try:
