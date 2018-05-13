@@ -41,6 +41,10 @@ def locate_dominating_file(io, filename, directory=None):
     return None
 
 def file_to_yaml(io, filename):
+    """
+    Read a YAML file and return the contents as a Python object. If
+    reading or parsing fails, throw an error.
+    """
     try:
         with io.open(filename, "r") as f:
             return yaml.load(f)
@@ -52,6 +56,10 @@ def file_to_yaml(io, filename):
                     .format(repr(filename), str(e)))
 
 def yaml_to_file(io, obj, filename):
+    """
+    Write a Python object to a YAML file. If writing fails, throw an
+    error.
+    """
     try:
         with io.open(filename, "w") as f:
             yaml.dump(obj, f, default_flow_style=False)
@@ -78,9 +86,20 @@ SUBCOMMAND_USAGE = {
 assert sorted(SUBCOMMANDS) == sorted(SUBCOMMAND_USAGE)
 
 def subcommand_usage(subcommand):
+    """
+    Return a string demonstrating usage of the given subcommand. For
+    example,
+
+    >>> subcommand_usage('init')
+    'init <path>'
+    """
     return "{} {}".format(subcommand, SUBCOMMAND_USAGE[subcommand])
 
 def usage(subcommand=None):
+    """
+    Return a string demonstrating full usage of the given subcommand,
+    or etunes as a whole. The string starts with 'etunes'.
+    """
     if subcommand is not None:
         return "etunes {}".format(subcommand_usage(subcommand))
     else:
