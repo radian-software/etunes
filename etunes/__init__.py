@@ -1,6 +1,6 @@
 import yaml
 
-class Error:
+class Error(Exception):
     """
     Error that should be printed to stderr, prefixed by the name of
     the executable.
@@ -8,14 +8,14 @@ class Error:
     def __init__(self, message):
         self.message = message
 
-class FancyError:
+class FancyError(Exception):
     """
     Error that should be printed to stderr as is.
     """
     def __init__(self, message):
         self.message = message
 
-class ErrorWithUsage:
+class ErrorWithUsage(Exception):
     """
     Like Error, but additionally includes a usage message.
     """
@@ -54,7 +54,7 @@ def file_to_yaml(io, filename):
 def yaml_to_file(io, obj, filename):
     try:
         with io.open(filename, "w") as f:
-            yaml.dump(obj, f)
+            yaml.dump(obj, f, default_flow_style=False)
     except FileNotFoundError as e:
         raise Error("could not write to YAML file {}: {}"
                     .format(repr(filename), str(e)))
@@ -86,7 +86,7 @@ def usage(subcommand=None):
     else:
         lines = ["    {}".format(subcommand_usage(subcommand))
                  for subcommand in SUBCOMMANDS]
-        return "etunes {}\n\nSubcommands:\n".format("\n".join(lines))
+        return "etunes {}\n\nSubcommands:\n{}".format(USAGE, "\n".join(lines))
 
 def validate_options(options):
     ...
@@ -120,24 +120,26 @@ def handle_args(io, args):
                     args.pop(0)
                 else:
                     raise ErrorWithUsage(
-                        "missing argument for flag '--library'")
+                        "missing argument for flag '--library'", usage())
             else:
                 raise ErrorWithUsage(
-                    "unrecognized flag: {}".format(repr(arg)))
+                    "unrecognized flag: {}".format(repr(arg)), usage())
         elif subcommand is None:
             if arg == "init":
                 subcommand = "init"
             else:
                 raise ErrorWithUsage(
-                    "unrecognized subcommand: {}".format(repr(arg)))
+                    "unrecognized subcommand: {}".format(repr(arg)), usage())
         elif subcommand == "init":
             if "path" not in config:
                 config["path"] = arg
             else:
                 raise ErrorWithUsage(
                     "unexpected argument: {}".format(repr(arg)),
-                    subcommand="init")
+                    usage("init"))
         args.pop(0)
+    if subcommand is None:
+        raise ErrorWithUsage("no subcommand given", usage())
     if subcommand == "init":
         task_init(io, path=config.get("path"))
         return
