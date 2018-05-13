@@ -88,8 +88,17 @@ def usage(subcommand=None):
                  for subcommand in SUBCOMMANDS]
         return "etunes {}\n\nSubcommands:\n{}".format(USAGE, "\n".join(lines))
 
-def validate_options(options):
-    ...
+def validate_options(options, filename):
+    if not isinstance(options, dict):
+        raise Error("library file {} does not contain map at top level"
+                    .format(repr(filename)))
+    for key, val in options.items():
+        if not isinstance(key, str):
+            raise Error("library file {} contains non-string key: {}"
+                        .format(repr(filename), repr(key)))
+        if not isinstance(val, str):
+            raise Error("library file {} contains non-string value: {}"
+                        .format(repr(filename), repr(val)))
 
 def task_init(io, path=None):
     if path is None:
@@ -149,7 +158,7 @@ def handle_args(io, args):
             raise Error("cannot find file {} in working or parent directories"
                         .format(repr(DEFAULT_LIBRARY_FILENAME)))
     options = file_to_yaml(library)
-    validate_options(options)
+    validate_options(options, library)
 
 def main(io, exec_name, args):
     try:
