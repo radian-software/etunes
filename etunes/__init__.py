@@ -13,18 +13,35 @@ class Error(Exception):
         self.messages = messages
 
 def error(message):
+    """
+    Error that prints the given message, prefixed by "etunes: ".
+    """
     return Error([("etunes", message)])
 
 def fancy_error(message):
+    """
+    Error that prints the given message as is.
+    """
     return Error([message])
 
 def with_usage(e, usage):
+    """
+    Wrap an error with a message prefixed by "usage: ". If e is an
+    Error, its preexisting messages are preserved and the usage
+    message is printed last. Otherwise, the error is converted to a
+    string and that is printed first.
+    """
     if isinstance(e, Error):
         return Error(e.messages + [("usage", usage)])
     else:
         return Error([str(e), ("usage", usage)])
 
 def with_extra(e, *hints):
+    """
+    Wrap an error with extra data. If e is not an Error, it is first
+    turned into one by using str(e) as the message. Then, the hints
+    are added to the messages list.
+    """
     if isinstance(e, Error):
         return Error(e.messages + hints)
     else:
@@ -111,8 +128,16 @@ def git_config_value(io, key):
     except OSError as e:
         raise git_not_installed_error(e)
 
+# The name of the file that eTunes searches for with library metadata,
+# and the filename used by 'etunes init'.
 DEFAULT_LIBRARY_FILENAME = "etunes.yml"
 
+# The default library metadata. The keys and values are strings,
+# except that if a value is a function then it is converted to a
+# string by calling it with an IO object.
+#
+# This is used by 'etunes init', and also to infer missing metadata
+# values.
 DEFAULT_LIBRARY = {
     "deduplication-threshold": "0.75",
     "git-email": lambda io: git_config_value(io, "user.email"),
@@ -121,10 +146,13 @@ DEFAULT_LIBRARY = {
     "metadata-path": "metadata/{album-artist}/{album}.yml",
 }
 
+# General command syntax for the top-level CLI of eTunes.
 USAGE = """[--library=<library-file>] <subcommand>"""
 
+# List of normal subcommands supported by eTunes.
 SUBCOMMANDS = ["init"]
 
+# Subcommand usage syntax.
 SUBCOMMAND_USAGE = {
     "init": "<path>",
 }
@@ -154,6 +182,14 @@ def usage(subcommand=None):
         return "etunes {}\n\nSubcommands:\n{}".format(USAGE, "\n".join(lines))
 
 def get_option(io, options, key, filename):
+    """
+    Return the value of a library metadata option. options is the map
+    containing library metadata; filename is only used in error
+    messages.
+
+    This may raise an error if the option is not set and getting the
+    default value requires performing some actions that can fail.
+    """
     val = options.get(key, DEFAULT_LIBRARY[key])
     if callable(val):
         try:
@@ -170,10 +206,21 @@ def get_option(io, options, key, filename):
         return val
 
 def decode_option(io, options, key, filename, decoder):
+    """
+    Helper function for the decode_options function. It looks up a
+    value in the library metadata, runs a decoder function on it, and
+    puts the result back into the metadata in place of the original
+    value.
+    """
     val = get_option(io, options, key, filename)
     options[key] = decoder(val, key)
 
 def decode_options(io, options, filename):
+    """
+    Given the library metadata option, convert it to the internal
+    representation and return a new map. The filename is used only in
+    error messages.
+    """
     if not isinstance(options, dict):
         raise error("library file {} does not contain map at top level"
                     .format(repr(filename)))
@@ -196,6 +243,12 @@ def decode_options(io, options, filename):
     return options
 
 def task_init(io, path=None):
+    """
+    Initialize a new eTunes library metadata file. The path may be
+    either a file (to put the metadata in) or a directory (where
+    DEFAULT_LIBRARY_FILENAME) is then used to get the full path. If
+    omitted, the current directory is used.
+    """
     if path is None:
         path = io.getcwd()
     if io.isdir(path):
@@ -212,6 +265,9 @@ def task_init(io, path=None):
     yaml_to_file(io, options, path)
 
 def handle_args(io, args):
+    """
+    Parse command-line arguments and take the appropriate action.
+    """
     literal = False
     library = None
     subcommand = None
@@ -267,6 +323,11 @@ def handle_args(io, args):
     options = decode_options(io, options, library)
 
 def main(io, exec_name, args):
+    """
+    Parse command-line arguments and execute. Any errors that were
+    raised are turned into messages on stderr and an exit code is
+    returned.
+    """
     try:
         handle_args(io, args)
         return 0
