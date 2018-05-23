@@ -1,4 +1,5 @@
 import shlex
+import traceback
 import yaml
 
 class Error(Exception):
@@ -277,4 +278,6 @@ def main(io, exec_name, args):
             else:
                 lines.append("{}: {}".format(*message))
         print("\n".join(lines), file=io.stderr)
+    except:
+        traceback.print_exc()
     return 1
