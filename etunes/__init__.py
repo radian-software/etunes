@@ -69,7 +69,7 @@ def locate_dominating_file(io, filename, directory=None):
     last, directory = None, io.abspath(directory)
     while directory != last:
         path = io.join(directory, filename)
-        if io.exists(path):
+        if io.exists(path) or io.islink(path):
             return path
         last, directory = directory, io.dirname(directory)
     return None
