@@ -1,5 +1,8 @@
 import shlex
 import traceback
+
+import json
+import jsonschema
 import yaml
 
 class Error(Exception):
@@ -154,11 +157,12 @@ DEFAULT_LIBRARY = {
 USAGE = """[--library=<library-file>] <subcommand>"""
 
 # List of normal subcommands supported by eTunes.
-SUBCOMMANDS = ["init"]
+SUBCOMMANDS = ["init", "query"]
 
 # Subcommand usage syntax.
 SUBCOMMAND_USAGE = {
     "init": "<path>",
+    "query": "(<json> | @<query-file> | -)"
 }
 
 assert sorted(SUBCOMMANDS) == sorted(SUBCOMMAND_USAGE)
@@ -268,6 +272,188 @@ def task_init(io, path=None):
             options[key] = val
     yaml_to_file(io, options, path)
 
+# jsonschema for filters. Used in QUERY_SCHEMA.
+MATCHER_SCHEMA = {
+    "anyOf": [
+        {
+            "type": "string",
+        },
+        {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "pattern": "^literal$",
+                        },
+                        {
+                            "type": "string",
+                            "pattern": "^regex$",
+                        },
+                    ]
+                },
+                "query": {
+                    "type": "string",
+                },
+                "substring": {
+                    "type": "boolean",
+                },
+                "case-fold": {
+                    "type": "boolean",
+                },
+            },
+            "required": ["type", "query"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "pattern": "^literal$",
+                },
+                "query": {
+                    "type": "string",
+                },
+            },
+        },
+        {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "pattern": "^missing$",
+                },
+                "query": {
+                    "type": "boolean",
+                },
+            },
+            "required": ["type", "query"],
+            "additionalProperties": False,
+        },
+    ]
+}
+
+# jsonschema for queries.
+QUERY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "options": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                    },
+                    "value": {
+                        "type": "string",
+                    },
+                },
+                "required": ["name"],
+                "additionalProperties": False,
+            },
+        },
+        "songs": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "filter": {
+                        "type": "object",
+                        "additionalProperties": MATCHER_SCHEMA,
+                    },
+                    "get": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                        },
+                    },
+                    "set": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string",
+                        },
+                    },
+                    "extract": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                        },
+                    },
+                    "embed": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                        },
+                    },
+                    "rename": {
+                        "type": "boolean",
+                    },
+                    "check": {
+                        "type": "boolean",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+        "import": {
+            "type": "array",
+            "items": MATCHER_SCHEMA,
+        },
+    }
+}
+
+def validate_query(query, query_name):
+    """
+    If the query does not match QUERY_SCHEMA according to jsonschema,
+    raise an error. query_name is used to identify the query in error
+    messages.
+    """
+    try:
+        jsonschema.validate(query, QUERY_SCHEMA)
+    except jsonschema.ValidationError as e:
+        raise with_extra(error("{} was malformed: {}"
+                               .format(query_name, str(e))),
+                         "query:\n" + json.dumps(query, indent=2))
+
+def task_query(io, query_source):
+    """
+    Execute a query against the eTunes database. The query is taken
+    from stdin or a file, or is given on the command line. The query
+    response is written to stdout.
+
+    Failed queries have their errors reported in the query response,
+    while malformed queries result in a message on stderr and a
+    nonzero exit code.
+    """
+    if query_source == "-":
+        query_text = io.stdin.read()
+        query_name = "query from stdin"
+    elif query_source.startswith("@"):
+        filename = query_source[1:]
+        try:
+            with io.open(filename, "r") as f:
+                query_text = f.read()
+                query_name = "query from file {}".format(repr(filename))
+        except OSError as e:
+            raise error("could not read query file {}: {}"
+                        .format(repr(filename), str(e)))
+    elif query_source.startswith("{") or query_source.startswith("["):
+        query_text = query_source
+        query_name = "query from command-line argument"
+    else:
+        raise with_usage(error("string {} does not identify a query"),
+                         usage("query"))
+    try:
+        query = json.loads(query_text)
+    except json.decoder.JSONDecodeError as e:
+        raise with_extra(error("could not parse query JSON: {}"
+                               .format(str(e))),
+                         "query:\n" + query_text)
+    validate_query(query, query_name)
+
 def handle_args(io, args):
     """
     Parse command-line arguments and take the appropriate action.
@@ -278,7 +464,7 @@ def handle_args(io, args):
     config = {}
     while args:
         arg = args[0]
-        if arg.startswith("-") and not literal:
+        if arg.startswith("-") and arg != "-" and not literal:
             if arg == "--":
                 literal = True
             elif arg.startswith("--library="):
@@ -297,8 +483,8 @@ def handle_args(io, args):
                     error("unrecognized flag: {}".format(repr(arg))),
                     usage())
         elif subcommand is None:
-            if arg == "init":
-                subcommand = "init"
+            if arg in SUBCOMMANDS:
+                subcommand = arg
             else:
                 raise with_usage(
                     error("unrecognized subcommand: {}".format(repr(arg))),
@@ -310,6 +496,13 @@ def handle_args(io, args):
                 raise with_usage(
                     error("unexpected argument: {}".format(repr(arg))),
                     usage("init"))
+        elif subcommand == "query":
+            if "query_source" not in config:
+                config["query_source"] = arg
+            else:
+                raise with_usage(
+                    error("unexpected argument: {}".format(repr(arg))),
+                    usage("query"))
         args.pop(0)
     if subcommand is None:
         raise with_usage(error("no subcommand given"), usage())
@@ -325,6 +518,12 @@ def handle_args(io, args):
                 ("hint", "to create, run 'etunes init'"))
     options = file_to_yaml(io, library)
     options = decode_options(io, options, library)
+    if subcommand == "query":
+        if "query_source" not in config:
+            raise with_usage(error("no query given"),
+                             usage("query"))
+        task_query(io, query_source=config["query_source"])
+        return
 
 def main(io, exec_name, args):
     """

@@ -7,6 +7,7 @@ setup(
     description="The declarative, version-controlled music library manager.",
     license="MIT",
     install_requires=[
+        "jsonschema",
         "PyYAML",
     ],
     name="etunes",

@@ -23,5 +23,6 @@ class StandardIO:
         self.run = subprocess.run
         self.splitext = os.path.splitext
         self.stderr = sys.stderr
+        self.stdin = sys.stdin
         self.stdout = sys.stdout
         self.which = shutil.which
