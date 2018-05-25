@@ -541,6 +541,7 @@ def handle_args(io, args):
                 error("cannot find file {} in working or parent directories"
                       .format(repr(DEFAULT_LIBRARY_FILENAME))),
                 ("hint", "to create, run 'etunes init'"))
+    io.chdir(io.dirname(library))
     options = file_to_yaml(io, library)
     options = decode_options(io, options, library)
     if subcommand == "query":
