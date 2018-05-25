@@ -281,12 +281,14 @@ def task_init(io, path=None):
     else:
         try:
             run_and_check(io, ["git", "init"])
+            commit_working_tree(io, "Add pre-existing files")
         except OSError as e:
             raise git_not_installed_error(e)
     if preexisting_library_file:
         io.print("note: not creating library file, already exists: {}"
                  .format(repr(preexisting_library_file)))
     else:
+        ensure_working_tree_clean(io)
         options = {}
         for key, val in DEFAULT_LIBRARY.items():
             if callable(val):
@@ -296,6 +298,7 @@ def task_init(io, path=None):
         yaml_to_file(io, options, library_file)
         io.print("Created library file with default settings in {}"
                  .format(path), file=io.stderr)
+        commit_working_tree(io, "Create library.yml with default settings")
 
 # jsonschema for filters. Used in QUERY_SCHEMA.
 MATCHER_SCHEMA = {
@@ -449,6 +452,66 @@ def validate_query(query, query_name):
                                .format(query_name, str(e))),
                          "query:\n" + json.dumps(query, indent=2))
 
+def is_working_tree_clean(io):
+    """
+    Determine if there are unstaged files, or staged files, or
+    untracked files. In other words, check if 'git status' would
+    report anything out of the ordinary.
+    """
+    try:
+        # Make sure working tree matches the index.
+        result = io.run(["git", "diff-files", "--quiet"])
+        if result.returncode != 0:
+            return False
+        # Make sure index matches HEAD. Or, if HEAD does not exist,
+        # make sure there are no files in the index.
+        result = io.run(["git", "rev-parse", "HEAD"],
+                        stdout=io.DEVNULL, stderr=io.DEVNULL)
+        no_commits_yet = result.returncode != 0
+        if no_commits_yet:
+            result = io.run(["git", "ls-files"], stdout=io.PIPE)
+            if result.stdout:
+                return False
+        else:
+            result = io.run(
+                ["git", "diff-index", "--cached", "--quiet", "HEAD"])
+            if result.returncode != 0:
+                return False
+        # Make sure there are no untracked files.
+        result = run_and_check(
+            io, ["git", "ls-files", "--others", "--exclude-standard"],
+            stdout=io.PIPE)
+        if result.stdout:
+            return False
+        return True
+    except OSError as e:
+        raise git_not_installed_error(e)
+
+def ensure_working_tree_clean(io):
+    if not is_working_tree_clean(io):
+        try:
+            io.run(["git", "status"])
+        except OSError as e:
+            raise git_not_installed_error(e)
+        raise with_extra(error("working directory is not clean"),
+                         ("hint",
+                          "you should clean up manually in {}"
+                          .format(repr(io.getcwd()))))
+
+def commit_working_tree(io, message, optional=False):
+    try:
+        run_and_check(io, ["git", "add", "-A"])
+        if not optional or not is_working_tree_clean(io):
+            run_and_check(
+                io, ["git", "commit", "--allow-empty", "-m", message])
+    except OSError as e:
+        raise git_not_installed_error(e)
+
+def execute_query(io, query, query_name):
+    ensure_working_tree_clean(io)
+    io.print("Pretending to execute query...")
+    commit_working_tree(io, query.get("description", "Unnamed query"))
+
 def task_query(io, query_source):
     """
     Execute a query against the eTunes database. The query is taken
@@ -484,6 +547,7 @@ def task_query(io, query_source):
                                .format(str(e))),
                          "query:\n" + query_text)
     validate_query(query, query_name)
+    execute_query(io, query, query_name)
 
 def handle_args(io, args):
     """
