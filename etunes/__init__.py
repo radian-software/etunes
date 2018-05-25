@@ -364,6 +364,12 @@ MATCHER_SCHEMA = {
 QUERY_SCHEMA = {
     "type": "object",
     "properties": {
+        "description": {
+            "type": "string",
+        },
+        "last-id": {
+            "type": "string",
+        },
         "options": {
             "type": "array",
             "items": {
