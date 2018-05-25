@@ -229,12 +229,12 @@ def decode_options(io, options, filename):
         raise error("library file {} does not contain map at top level"
                     .format(repr(filename)))
     for key, val in options.items():
-        if not isinstance(key, str):
-            raise error("library file {} contains non-string key: {}"
-                        .format(repr(filename), repr(key)))
         if not isinstance(val, str):
             raise error("library file {} contains non-string value: {}"
                         .format(repr(filename), repr(val)))
+        if key not in DEFAULT_LIBRARY:
+            raise error("library file {} contains unexpected key: {}"
+                        .format(repr(filename), repr(key)))
     def decode_float(val, key):
         try:
             return float(val)
@@ -323,7 +323,7 @@ def handle_args(io, args):
                 error("cannot find file {} in working or parent directories"
                       .format(repr(DEFAULT_LIBRARY_FILENAME))),
                 ("hint", "to create, run 'etunes init'"))
-    options = file_to_yaml(library)
+    options = file_to_yaml(io, library)
     options = decode_options(io, options, library)
 
 def main(io, exec_name, args):
