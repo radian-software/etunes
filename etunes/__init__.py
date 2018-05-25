@@ -43,9 +43,9 @@ def with_extra(e, *hints):
     are added to the messages list.
     """
     if isinstance(e, Error):
-        return Error(e.messages + hints)
+        return Error(e.messages + list(hints))
     else:
-        return Error([str(e)] + hints)
+        return Error([str(e)] + list(hints))
 
 def remove_newline(s):
     """
