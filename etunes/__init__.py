@@ -1,5 +1,4 @@
 import shlex
-import traceback
 
 import json
 import jsonschema
@@ -541,7 +540,7 @@ def main(io, exec_name, args):
                 lines.append(message)
             else:
                 lines.append("{}: {}".format(*message))
-        print("\n".join(lines), file=io.stderr)
+        io.print("\n".join(lines), file=io.stderr)
     except:
-        traceback.print_exc()
+        io.print_exc()
     return 1

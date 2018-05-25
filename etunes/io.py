@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import sys
+import traceback
 
 class StandardIO:
     def __init__(self):
@@ -20,6 +21,8 @@ class StandardIO:
         self.makedirs = os.makedirs
         self.mkdir = os.mkdir
         self.open = open
+        self.print = print
+        self.print_exc = traceback.print_exc
         self.run = subprocess.run
         self.splitext = os.path.splitext
         self.stderr = sys.stderr
