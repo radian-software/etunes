@@ -94,7 +94,11 @@ def yaml_to_file(io, obj, filename):
     """
     try:
         with io.open(filename, "w") as f:
-            yaml.dump(obj, f, default_flow_style=False)
+            yaml.dump(obj, f,
+                      # Actually render YAML instead of just JSON.
+                      default_flow_style=False,
+                      # Quote strings.
+                      default_style='|')
     except FileNotFoundError as e:
         raise error("could not write to YAML file {}: {}"
                     .format(repr(filename), str(e)))
