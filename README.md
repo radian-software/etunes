@@ -292,7 +292,9 @@ Fully synchronize disk state to match metadata:
     {
         "songs": [
             {
-                "embed": true,
+                "embed": [
+                    "!all"
+                ],
                 "rename": true
             }
         ]
