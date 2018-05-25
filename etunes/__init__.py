@@ -57,6 +57,15 @@ def remove_newline(s):
         return s[:-1]
     return s
 
+def quote_command(args):
+    return " ".join(shlex.quote(arg) for arg in args)
+
+def run_and_check(io, args, **kwargs):
+    result = io.run(args, **kwargs)
+    if result.returncode != 0:
+        raise error("command failed: {}".format(quote_command(result.args)))
+    return result
+
 def locate_dominating_file(io, filename, directory=None):
     """
     Find a file or directory with the given name, either in the given
@@ -260,16 +269,33 @@ def task_init(io, path=None):
         path = io.getcwd()
     if io.isdir(path):
         path = io.join(path, DEFAULT_LIBRARY_FILENAME)
-    if io.exists(path) or io.islink(path):
-        raise error("cannot create library file, already exists: {}"
-                    .format(repr(path)))
-    options = {}
-    for key, val in DEFAULT_LIBRARY.items():
-        if callable(val):
-            options[key] = val(io)
-        else:
-            options[key] = val
-    yaml_to_file(io, options, path)
+    library_file = path
+    library_dir = io.dirname(path)
+    io.chdir(library_dir)
+    preexisting_library_file = locate_dominating_file(
+        io, DEFAULT_LIBRARY_FILENAME, library_dir)
+    git_dir = locate_dominating_file(io, ".git", library_dir)
+    if git_dir:
+        io.print("note: not initializing Git repository, already exists: {}"
+                 .format(repr(git_dir)))
+    else:
+        try:
+            run_and_check(io, ["git", "init"])
+        except OSError as e:
+            raise git_not_installed_error(e)
+    if preexisting_library_file:
+        io.print("note: not creating library file, already exists: {}"
+                 .format(repr(preexisting_library_file)))
+    else:
+        options = {}
+        for key, val in DEFAULT_LIBRARY.items():
+            if callable(val):
+                options[key] = val(io)
+            else:
+                options[key] = val
+        yaml_to_file(io, options, library_file)
+        io.print("Created library file with default settings in {}"
+                 .format(path), file=io.stderr)
 
 # jsonschema for filters. Used in QUERY_SCHEMA.
 MATCHER_SCHEMA = {
