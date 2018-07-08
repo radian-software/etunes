@@ -450,7 +450,7 @@ def validate_query(query, query_name):
     except jsonschema.ValidationError as e:
         raise with_extra(error("{} was malformed: {}"
                                .format(query_name, str(e))),
-                         "query:\n" + json.dumps(query, indent=2))
+                         "\nquery:\n" + json.dumps(query, indent=2))
 
 def is_working_tree_clean(io):
     """
