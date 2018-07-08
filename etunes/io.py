@@ -11,6 +11,7 @@ class StandardIO:
         self.abspath = os.path.abspath
         self.chdir = os.chdir
         self.dirname = os.path.dirname
+        self.environ = os.environ
         self.exists = os.path.exists
         self.get_terminal_size = shutil.get_terminal_size
         self.getcwd = os.getcwd

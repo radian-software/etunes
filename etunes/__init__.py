@@ -624,6 +624,8 @@ def handle_args(io, args):
         task_init(io, path=config.get("path"))
         return
     if library_file is None:
+        library_file = io.environ.get("ETUNES_LIBRARY")
+    if library_file is None:
         library_file = locate_dominating_file(io, DEFAULT_LIBRARY_FILENAME)
         if library_file is None:
             raise with_extra(
