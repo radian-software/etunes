@@ -507,12 +507,31 @@ def commit_working_tree(io, message, optional=False):
     except OSError as e:
         raise git_not_installed_error(e)
 
-def execute_query(io, query, query_name):
+def execute_query(io, query, query_name, library_file):
     ensure_working_tree_clean(io)
-    io.print("Pretending to execute query...")
-    commit_working_tree(io, query.get("description", "Unnamed query"))
+    options = file_to_yaml(io, library_file)
+    options = decode_options(io, options, library_file)
+    response = {}
+    new_options = dict(options)
+    if "options" in query:
+        for option_setting in query["options"]:
+            name = option_setting["name"]
+            if name not in DEFAULT_LIBRARY:
+                raise error("unknown option: {}".format(name))
+            if "value" in option_setting:
+                new_options[name] = option_setting["value"]
+        options_response = []
+        for option_setting in query["options"]:
+            options_response.append(new_options[option_setting["name"]])
+        response["options"] = options_response
+    if new_options != options:
+        yaml_to_file(io, new_options, library_file)
+    json.dump(response, io.stdout, indent=2)
+    io.print()
+    if not is_working_tree_clean(io):
+        commit_working_tree(io, query.get("description", "Unnamed query"))
 
-def task_query(io, query_source):
+def task_query(io, query_source, library_file):
     """
     Execute a query against the eTunes database. The query is taken
     from stdin or a file, or is given on the command line. The query
@@ -547,14 +566,14 @@ def task_query(io, query_source):
                                .format(str(e))),
                          "query:\n" + query_text)
     validate_query(query, query_name)
-    execute_query(io, query, query_name)
+    execute_query(io, query, query_name, library_file)
 
 def handle_args(io, args):
     """
     Parse command-line arguments and take the appropriate action.
     """
     literal = False
-    library = None
+    library_file = None
     subcommand = None
     config = {}
     while args:
@@ -563,11 +582,11 @@ def handle_args(io, args):
             if arg == "--":
                 literal = True
             elif arg.startswith("--library="):
-                library = arg[len("--library="):]
+                library_file = arg[len("--library="):]
                 args = args[1:]
             elif arg == "--library":
                 if len(args) >= 2:
-                    library = args[1]
+                    library_file = args[1]
                     args.pop(0)
                 else:
                     raise with_usage(
@@ -604,21 +623,20 @@ def handle_args(io, args):
     if subcommand == "init":
         task_init(io, path=config.get("path"))
         return
-    if library is None:
-        library = locate_dominating_file(io, DEFAULT_LIBRARY_FILENAME)
-        if library is None:
+    if library_file is None:
+        library_file = locate_dominating_file(io, DEFAULT_LIBRARY_FILENAME)
+        if library_file is None:
             raise with_extra(
                 error("cannot find file {} in working or parent directories"
                       .format(repr(DEFAULT_LIBRARY_FILENAME))),
                 ("hint", "to create, run 'etunes init'"))
-    io.chdir(io.dirname(library))
-    options = file_to_yaml(io, library)
-    options = decode_options(io, options, library)
+    io.chdir(io.dirname(library_file))
     if subcommand == "query":
         if "query_source" not in config:
             raise with_usage(error("no query given"),
                              usage("query"))
-        task_query(io, query_source=config["query_source"])
+        task_query(io, query_source=config["query_source"],
+                   library_file=library_file)
         return
 
 def main(io, exec_name, args):
