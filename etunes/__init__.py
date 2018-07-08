@@ -638,6 +638,6 @@ def main(io, exec_name, args):
             else:
                 lines.append("{}: {}".format(*message))
         io.print("\n".join(lines), file=io.stderr)
-    except:
+    except Exception:
         io.print_exc()
     return 1
