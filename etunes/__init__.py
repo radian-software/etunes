@@ -4,6 +4,9 @@ import json
 import jsonschema
 import yaml
 
+open = None
+print = None
+
 class Error(Exception):
     """
     Error that should be printed to stderr. The messages are a list of
