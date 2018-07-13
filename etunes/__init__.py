@@ -158,8 +158,6 @@ DEFAULT_LIBRARY_FILENAME = "etunes.yml"
 # values.
 DEFAULT_LIBRARY = {
     "deduplication-threshold": "0.75",
-    "git-email": lambda io: git_config_value(io, "user.email"),
-    "git-name": lambda io: git_config_value(io, "user.name"),
     "media-path": "media/{album-artist}/{album}/{title}.{ext}",
     "metadata-path": "metadata/{album-artist}/{album}.yml",
 }
