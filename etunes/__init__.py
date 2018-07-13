@@ -221,21 +221,10 @@ def get_option(io, options, key, filename):
     else:
         return val
 
-def decode_option(io, options, key, filename, decoder):
+def validate_library_options(io, options, filename):
     """
-    Helper function for the decode_options function. It looks up a
-    value in the library metadata, runs a decoder function on it, and
-    puts the result back into the metadata in place of the original
-    value.
-    """
-    val = get_option(io, options, key, filename)
-    options[key] = decoder(val, key)
-
-def decode_options(io, options, filename):
-    """
-    Given the library metadata option, convert it to the internal
-    representation and return a new map. The filename is used only in
-    error messages.
+    Given the library file data structure, throw an error if it is
+    malformed. The filename is used only in error messages.
     """
     if not isinstance(options, dict):
         raise error("library file {} does not contain map at top level"
@@ -247,16 +236,21 @@ def decode_options(io, options, filename):
         if key not in DEFAULT_LIBRARY:
             raise error("library file {} contains unexpected key: {}"
                         .format(repr(filename), repr(key)))
-    def decode_float(val, key):
-        try:
-            return float(val)
-        except ValueError:
-            raise error(("library file {} contains malformed "
-                         "floating-point value for key {}: {}")
-                        .format(repr(filename), repr(key), repr(val)))
-    decode_option(
-        io, options, "deduplication-threshold", filename, decode_float)
-    return options
+
+def decode_float(value):
+    try:
+        return float(value)
+    except ValueError:
+        raise error("malformed floating-point value: {}"
+                    .format(repr(value)))
+
+def decode_option(name, value):
+    try:
+        if name == "deduplication-threshold":
+            return decode_float(value)
+        return value
+    except Error as e:
+        raise error("for option {}: {}".format(name, e))
 
 def task_init(io, path=None):
     """
@@ -510,28 +504,61 @@ def commit_working_tree(io, message, optional=False):
 def execute_query(io, query, query_name, library_file):
     ensure_working_tree_clean(io)
     options = file_to_yaml(io, library_file)
-    options = decode_options(io, options, library_file)
+    validate_library_options(io, options, library_file)
+    errors = []
     response = {}
     new_options = dict(options)
+    new_options_decoded = {}
+    for name, value in options.items():
+        try:
+            new_options_decoded[name] = decode_option(name, value)
+        except Error as e:
+            raise error(
+                "library file {} contains malformed value {} for option {}"
+                .format(repr(library_file), repr(value), repr(name)))
     if "options" in query:
+        unknown_options = set()
         for option_setting in query["options"]:
             name = option_setting["name"]
             if name not in DEFAULT_LIBRARY:
-                raise error("unknown option: {}".format(name))
+                unknown_options.add(name)
+                continue
             if "value" in option_setting:
-                new_options[name] = option_setting["value"]
+                value = option_setting["value"]
+                new_options[name] = value
+                try:
+                    new_options_decoded[name] = decode_option(name, value)
+                except Error as e:
+                    errors.append({
+                        "reason": "malformed-option-value",
+                        "message": ("Malformed value {} for option {}"
+                                    .format(repr(value), repr(name))),
+                        "name": name,
+                        "value": value,
+                    })
         options_response = []
         for option_setting in query["options"]:
             options_response.append(new_options[option_setting["name"]])
         response["options"] = options_response
+        for unknown_option in unknown_options:
+            errors.append({
+                "reason": "unknown-option",
+                "message": "Unknown option {}".format(repr(unknown_option)),
+                "name": unknown_option,
+            })
+    if errors:
+        options["errors"] = errors
+        options["success"] = False
+    else:
+        options["success"] = True
     if new_options != options:
         yaml_to_file(io, new_options, library_file)
     json.dump(response, io.stdout, indent=2)
     io.print()
-    if not is_working_tree_clean(io):
-        commit_working_tree(io, query.get("description", "Unnamed query"))
+    commit_working_tree(io, query.get("description", "Unnamed query"),
+                        optional=True)
 
-def task_query(io, query_source, library_file):
+def task_query(io, query_source, library_file, orig_cwd):
     """
     Execute a query against the eTunes database. The query is taken
     from stdin or a file, or is given on the command line. The query
@@ -546,6 +573,7 @@ def task_query(io, query_source, library_file):
         query_name = "query from stdin"
     elif query_source.startswith("@"):
         filename = query_source[1:]
+        filename = io.join(orig_cwd, filename)
         try:
             with io.open(filename, "r") as f:
                 query_text = f.read()
@@ -632,13 +660,20 @@ def handle_args(io, args):
                 error("cannot find file {} in working or parent directories"
                       .format(repr(DEFAULT_LIBRARY_FILENAME))),
                 ("hint", "to create, run 'etunes init'"))
+    if io.isdir(library_file):
+        library_file = io.join(library_file, DEFAULT_LIBRARY_FILENAME)
+    if not io.isfile(library_file):
+        raise error(
+            "library file does not exist: {}".format(repr(library_file)))
+    orig_cwd = io.getcwd()
     io.chdir(io.dirname(library_file))
     if subcommand == "query":
         if "query_source" not in config:
             raise with_usage(error("no query given"),
                              usage("query"))
         task_query(io, query_source=config["query_source"],
-                   library_file=library_file)
+                   library_file=library_file,
+                   orig_cwd=orig_cwd)
         return
 
 def main(io, exec_name, args):
