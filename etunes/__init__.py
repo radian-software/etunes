@@ -168,12 +168,14 @@ DEFAULT_LIBRARY = {
 USAGE = """[--library=<library-file>] <subcommand>"""
 
 # List of normal subcommands supported by eTunes.
-SUBCOMMANDS = ["init", "query"]
+SUBCOMMANDS = ["init", "query", "help", "version"]
 
 # Subcommand usage syntax.
 SUBCOMMAND_USAGE = {
     "init": "<path>",
-    "query": "(<json> | @<query-file> | -)"
+    "query": "(<json> | @<query-file> | -)",
+    "help": None,
+    "version": None
 }
 
 assert sorted(SUBCOMMANDS) == sorted(SUBCOMMAND_USAGE)
@@ -186,7 +188,11 @@ def subcommand_usage(subcommand):
     >>> subcommand_usage('init')
     'init <path>'
     """
-    return "{} {}".format(subcommand, SUBCOMMAND_USAGE[subcommand])
+    desc = SUBCOMMAND_USAGE[subcommand]
+    if desc:
+        return "{} {}".format(subcommand, desc)
+    else:
+        return subcommand
 
 def usage(subcommand=None):
     """
@@ -199,6 +205,9 @@ def usage(subcommand=None):
         lines = ["    {}".format(subcommand_usage(subcommand))
                  for subcommand in SUBCOMMANDS]
         return "etunes {}\n\nSubcommands:\n{}".format(USAGE, "\n".join(lines))
+
+def get_version():
+    return "etunes development version"
 
 def get_option(io, options, key, filename):
     """
@@ -612,6 +621,12 @@ def handle_args(io, args):
         if arg.startswith("-") and arg != "-" and not literal:
             if arg == "--":
                 literal = True
+            elif arg in ("-h", "-?", "-help", "--help"):
+                io.print(usage())
+                return
+            elif arg in ("-v", "-V", "-version", "--version"):
+                io.print(get_version(), file=io.stderr)
+                return
             elif arg.startswith("--library="):
                 library_file = arg[len("--library="):]
                 args = args[1:]
@@ -651,6 +666,12 @@ def handle_args(io, args):
         args.pop(0)
     if subcommand is None:
         raise with_usage(error("no subcommand given"), usage())
+    if subcommand == "help":
+        io.print(usage())
+        return
+    if subcommand == "version":
+        io.print(get_version(), file=io.stderr)
+        return
     if subcommand == "init":
         task_init(io, path=config.get("path"))
         return
