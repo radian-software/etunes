@@ -2,6 +2,8 @@ import shlex
 
 import json
 import jsonschema
+import psutil
+import uuid
 import yaml
 
 open = None
@@ -78,7 +80,7 @@ def locate_dominating_file(io, filename, directory=None):
     """
     if directory is None:
         directory = io.getcwd()
-    last, directory = None, io.abspath(directory)
+    last, directory = None, io.realpath(directory)
     while directory != last:
         path = io.join(directory, filename)
         if io.exists(path) or io.islink(path):
@@ -104,15 +106,16 @@ def file_to_yaml(io, filename):
 def yaml_to_file(io, obj, filename):
     """
     Write a Python object to a YAML file. If writing fails, throw an
-    error.
+    error. Writing is guaranteed to be atomic.
     """
     try:
-        with io.open(filename, "w") as f:
+        with io.NamedTemporaryFile() as f:
             yaml.dump(obj, f,
                       # Actually render YAML instead of just JSON.
                       default_flow_style=False,
                       # Quote strings.
                       default_style='|')
+            io.rename(f.name, filename)
     except FileNotFoundError as e:
         raise error("could not write to YAML file {}: {}"
                     .format(repr(filename), str(e)))
@@ -266,15 +269,23 @@ def task_init(io, path=None):
     """
     Initialize a new eTunes library metadata file. The path may be
     either a file (to put the metadata in) or a directory (where
-    DEFAULT_LIBRARY_FILENAME) is then used to get the full path. If
+    DEFAULT_LIBRARY_FILENAME is then used to get the full path). If
     omitted, the current directory is used.
     """
     if path is None:
         path = io.getcwd()
+    else:
+        path = io.realpath(path)
     if io.isdir(path):
         path = io.join(path, DEFAULT_LIBRARY_FILENAME)
     library_file = path
     library_dir = io.dirname(path)
+    try:
+        if not io.isdir(library_dir):
+            io.mkdir(library_dir)
+    except OSError as e:
+        raise error("could not create library directory {}: {}"
+                    .format(repr(library_dir), e))
     io.chdir(library_dir)
     preexisting_library_file = locate_dominating_file(
         io, DEFAULT_LIBRARY_FILENAME, library_dir)
@@ -284,10 +295,22 @@ def task_init(io, path=None):
                  .format(repr(git_dir)))
     else:
         try:
+            git_dir = io.getcwd()
             run_and_check(io, ["git", "init"])
             commit_working_tree(io, "Add pre-existing files")
         except OSError as e:
             raise git_not_installed_error(e)
+    gitignore_path = io.join(git_dir, ".gitignore")
+    if io.exists(gitignore_path) or io.islink(gitignore_path):
+        io.print("note: not creating .gitignore, already exists: {}"
+                 .format(repr(gitignore_path)))
+        io.print("note: please make sure '/work/' is in your .gitignore")
+    else:
+        ensure_working_tree_clean(io)
+        with io.open(gitignore_path, "w") as f:
+            f.write("/work/")
+            f.write("\n")
+        commit_working_tree(io, "Add .gitignore for '/work/'")
     if preexisting_library_file:
         io.print("note: not creating library file, already exists: {}"
                  .format(repr(preexisting_library_file)))
@@ -511,12 +534,69 @@ def commit_working_tree(io, message, optional=False):
     except OSError as e:
         raise git_not_installed_error(e)
 
+PROCESS_FILENAME = "process"
+LAST_ID_FILENAME = "last-id"
+
+def return_query_result(io, query, response, last_id_file):
+    transaction_id = str(uuid.uuid4())
+    try:
+        with io.open(last_id_file, "w") as f:
+            f.write(transaction_id)
+            f.write("\n")
+    except OSError as e:
+        response["errors"].append({
+            "reason": "os-error",
+            "message": str(e),
+            "file": last_id_file,
+        })
+    response["success"] = not response["errors"]
+    json.dump(response, io.stdout, indent=2)
+    io.print()
+    if response["success"]:
+        commit_working_tree(io, query.get("description", "Unnamed query"),
+                            optional=True)
+
 def execute_query(io, query, query_name, library_file):
     ensure_working_tree_clean(io)
     options = file_to_yaml(io, library_file)
     validate_library_options(io, options, library_file)
+    work_dir = io.join(io.dirname(library_file), "work")
+    io.makedirs(work_dir, exist_ok=True)
+    process_file = io.join(work_dir, PROCESS_FILENAME)
+    try:
+        with io.open(process_file) as f:
+            lines = f.read().splitlines()
+            pid, create_time = lines
+            pid = int(pid)
+            create_time = float(create_time)
+            prev_process = psutil.Process(pid)
+            real_create_time = prev_process.create_time()
+            if abs(create_time - real_create_time) < 0.1:
+                raise error("another query is already running (PID {})"
+                            .format(pid))
+    except (OSError, ValueError, psutil.NoSuchProcess):
+        pass
     errors = []
-    response = {}
+    response = {
+        "partial": False,
+        "errors": errors,
+    }
+    last_id_file = io.join(work_dir, LAST_ID_FILENAME)
+    expected_last_id = query.get("last-id")
+    if expected_last_id:
+        try:
+            with io.open(last_id_file) as f:
+                actual_last_id = f.read().strip()
+                if expected_last_id != actual_last_id:
+                    errors.append({
+                        "reason": "intervening-transaction",
+                        "message":
+                        ("Another transaction ({}) happened after {} "
+                         "but before this one")
+                        .format(actual_last_id, expected_last_id)
+                    })
+        except OSError:
+            pass
     new_options = dict(options)
     new_options_decoded = {}
     for name, value in options.items():
@@ -557,16 +637,20 @@ def execute_query(io, query, query_name, library_file):
                 "name": unknown_option,
             })
     if errors:
-        options["errors"] = errors
-        options["success"] = False
-    else:
-        options["success"] = True
+        return_query_result(io, query, response, last_id_file)
+    # Now we start changing things on disk, if there were no errors.
     if new_options != options:
-        yaml_to_file(io, new_options, library_file)
-    json.dump(response, io.stdout, indent=2)
-    io.print()
-    commit_working_tree(io, query.get("description", "Unnamed query"),
-                        optional=True)
+        try:
+            yaml_to_file(io, new_options, library_file)
+            response["partial"] = True
+        except Error as e:
+            errors.append({
+                "reason": "os-error",
+                "message": str(e),
+                "file": library_file,
+            })
+    response["partial"] = False
+    return_query_result(io, query, response, last_id_file)
 
 def task_query(io, query_source, library_file, orig_cwd):
     """

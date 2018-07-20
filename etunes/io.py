@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import traceback
 
 class StandardIO:
@@ -21,9 +22,12 @@ class StandardIO:
         self.join = os.path.join
         self.makedirs = os.makedirs
         self.mkdir = os.mkdir
+        self.NamedTemporaryFile = tempfile.NamedTemporaryFile
         self.open = open
         self.print = print
         self.print_exc = traceback.print_exc
+        self.realpath = os.path.realpath
+        self.rename = os.rename
         self.run = subprocess.run
         self.splitext = os.path.splitext
         self.stderr = sys.stderr

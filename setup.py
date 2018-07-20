@@ -8,6 +8,7 @@ setup(
     license="MIT",
     install_requires=[
         "jsonschema",
+        "psutil",
         "PyYAML",
     ],
     name="etunes",
