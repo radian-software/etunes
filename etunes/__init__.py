@@ -96,17 +96,17 @@ def file_to_yaml(io, filename):
     try:
         with io.open(filename, "r") as f:
             return yaml.load(f)
-    except FileNotFoundError as e:
+    except OSError as e:
         raise error("could not read YAML file {}: {}"
                     .format(repr(filename), str(e)))
     except yaml.YAMLError as e:
         raise error("malformed YAML file {}: {}"
                     .format(repr(filename), str(e)))
 
-def yaml_to_file(io, obj, filename):
+def yaml_to_file_raw(io, obj, filename):
     """
-    Write a Python object to a YAML file. If writing fails, throw an
-    error. Writing is guaranteed to be atomic.
+    Write a Python object to a YAML file. If writing fails, propagate
+    the error directly. Writing is guaranteed to be atomic.
     """
     with io.NamedTemporaryFile("w", delete=False) as f:
         yaml.dump(obj, f,
@@ -116,6 +116,17 @@ def yaml_to_file(io, obj, filename):
                   default_style='|')
         f.flush()
         io.replace(f.name, filename)
+
+def yaml_to_file(io, obj, filename):
+    """
+    Write a Python object to a YAML file. If writing fails, throw an
+    eTunes pretty error. Writing is guaranteed to be atomic.
+    """
+    try:
+        return yaml_to_file_raw(io, obj, filename)
+    except OSError as e:
+        raise error("could not write to YAML file {}: {}"
+                    .format(repr(filename), str(e)))
 
 def git_not_installed_error(e):
     """
@@ -314,11 +325,7 @@ def task_init(io, directory=None):
                 options[key] = val(io)
             else:
                 options[key] = val
-        try:
-            yaml_to_file(io, options, library_file)
-        except OSError as e:
-            raise error("could not write to library file {}: {}"
-                        .format(repr(library_file), str(e)))
+        yaml_to_file(io, options, library_file)
         io.print("Created library file with default settings in {}"
                  .format(library_file), file=io.stderr)
         commit_working_tree(io, "Create library.yml with default settings")
@@ -638,7 +645,7 @@ def execute_query(io, query, query_name, library_dir):
     # Now we start changing things on disk, if there were no errors.
     if new_options != options:
         try:
-            yaml_to_file(io, new_options, library_file)
+            yaml_to_file_raw(io, new_options, library_file)
             response["partial"] = True
         except OSError as e:
             errors.append({
