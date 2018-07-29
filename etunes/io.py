@@ -20,6 +20,7 @@ class StandardIO:
         self.isfile = os.path.isfile
         self.islink = os.path.islink
         self.join = os.path.join
+        self.link = os.link
         self.makedirs = os.makedirs
         self.mkdir = os.mkdir
         self.NamedTemporaryFile = tempfile.NamedTemporaryFile
@@ -28,6 +29,7 @@ class StandardIO:
         self.print_exc = traceback.print_exc
         self.realpath = os.path.realpath
         self.rename = os.rename
+        self.replace = os.replace
         self.run = subprocess.run
         self.splitext = os.path.splitext
         self.stderr = sys.stderr

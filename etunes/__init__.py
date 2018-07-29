@@ -108,17 +108,14 @@ def yaml_to_file(io, obj, filename):
     Write a Python object to a YAML file. If writing fails, throw an
     error. Writing is guaranteed to be atomic.
     """
-    try:
-        with io.NamedTemporaryFile() as f:
-            yaml.dump(obj, f,
-                      # Actually render YAML instead of just JSON.
-                      default_flow_style=False,
-                      # Quote strings.
-                      default_style='|')
-            io.rename(f.name, filename)
-    except FileNotFoundError as e:
-        raise error("could not write to YAML file {}: {}"
-                    .format(repr(filename), str(e)))
+    with io.NamedTemporaryFile("w", delete=False) as f:
+        yaml.dump(obj, f,
+                  # Actually render YAML instead of just JSON.
+                  default_flow_style=False,
+                  # Quote strings.
+                  default_style='|')
+        f.flush()
+        io.replace(f.name, filename)
 
 def git_not_installed_error(e):
     """
@@ -166,14 +163,14 @@ DEFAULT_LIBRARY = {
 }
 
 # General command syntax for the top-level CLI of eTunes.
-USAGE = """[--library=<library-file>] <subcommand>"""
+USAGE = """[--library=<library-dir>] <subcommand>"""
 
 # List of normal subcommands supported by eTunes.
 SUBCOMMANDS = ["init", "query", "help", "version"]
 
 # Subcommand usage syntax.
 SUBCOMMAND_USAGE = {
-    "init": "<path>",
+    "init": "[<directory>]",
     "query": "(<json> | @<query-file> | -)",
     "help": None,
     "version": None
@@ -265,21 +262,15 @@ def decode_option(name, value):
     except Error as e:
         raise error("for option {}: {}".format(name, e))
 
-def task_init(io, path=None):
+def task_init(io, directory=None):
     """
-    Initialize a new eTunes library metadata file. The path may be
-    either a file (to put the metadata in) or a directory (where
-    DEFAULT_LIBRARY_FILENAME is then used to get the full path). If
-    omitted, the current directory is used.
+    Initialize a new eTunes library metadata file. The path should be
+    a directory in which to place the metadata file (under the name of
+    DEFAULT_LIBRARY_FILENAME). If omitted, the current directory is
+    used.
     """
-    if path is None:
-        path = io.getcwd()
-    else:
-        path = io.realpath(path)
-    if io.isdir(path):
-        path = io.join(path, DEFAULT_LIBRARY_FILENAME)
-    library_file = path
-    library_dir = io.dirname(path)
+    library_dir = io.realpath(directory or io.getcwd())
+    library_file = io.join(library_dir, DEFAULT_LIBRARY_FILENAME)
     try:
         if not io.isdir(library_dir):
             io.mkdir(library_dir)
@@ -289,18 +280,19 @@ def task_init(io, path=None):
     io.chdir(library_dir)
     preexisting_library_file = locate_dominating_file(
         io, DEFAULT_LIBRARY_FILENAME, library_dir)
-    git_dir = locate_dominating_file(io, ".git", library_dir)
-    if git_dir:
+    git_repo_dir = locate_dominating_file(io, ".git", library_dir)
+    if git_repo_dir:
         io.print("note: not initializing Git repository, already exists: {}"
-                 .format(repr(git_dir)))
+                 .format(repr(git_repo_dir)))
     else:
         try:
-            git_dir = io.getcwd()
             run_and_check(io, ["git", "init"])
-            commit_working_tree(io, "Add pre-existing files")
+            run_and_check(
+                io, ["git", "commit", "--allow-empty", "-m", "Initial commit"])
+            commit_working_tree(io, "Add pre-existing files", optional=True)
         except OSError as e:
             raise git_not_installed_error(e)
-    gitignore_path = io.join(git_dir, ".gitignore")
+    gitignore_path = ".gitignore"
     if io.exists(gitignore_path) or io.islink(gitignore_path):
         io.print("note: not creating .gitignore, already exists: {}"
                  .format(repr(gitignore_path)))
@@ -322,9 +314,13 @@ def task_init(io, path=None):
                 options[key] = val(io)
             else:
                 options[key] = val
-        yaml_to_file(io, options, library_file)
+        try:
+            yaml_to_file(io, options, library_file)
+        except OSError as e:
+            raise error("could not write to library file {}: {}"
+                        .format(repr(library_file), str(e)))
         io.print("Created library file with default settings in {}"
-                 .format(path), file=io.stderr)
+                 .format(library_file), file=io.stderr)
         commit_working_tree(io, "Create library.yml with default settings")
 
 # jsonschema for filters. Used in QUERY_SCHEMA.
@@ -556,11 +552,12 @@ def return_query_result(io, query, response, last_id_file):
         commit_working_tree(io, query.get("description", "Unnamed query"),
                             optional=True)
 
-def execute_query(io, query, query_name, library_file):
+def execute_query(io, query, query_name, library_dir):
     ensure_working_tree_clean(io)
+    library_file = io.join(library_dir, DEFAULT_LIBRARY_FILENAME)
     options = file_to_yaml(io, library_file)
     validate_library_options(io, options, library_file)
-    work_dir = io.join(io.dirname(library_file), "work")
+    work_dir = io.join(library_dir, "work")
     io.makedirs(work_dir, exist_ok=True)
     process_file = io.join(work_dir, PROCESS_FILENAME)
     try:
@@ -643,7 +640,7 @@ def execute_query(io, query, query_name, library_file):
         try:
             yaml_to_file(io, new_options, library_file)
             response["partial"] = True
-        except Error as e:
+        except OSError as e:
             errors.append({
                 "reason": "os-error",
                 "message": str(e),
@@ -652,7 +649,7 @@ def execute_query(io, query, query_name, library_file):
     response["partial"] = False
     return_query_result(io, query, response, last_id_file)
 
-def task_query(io, query_source, library_file, orig_cwd):
+def task_query(io, query_source, library_dir, orig_cwd):
     """
     Execute a query against the eTunes database. The query is taken
     from stdin or a file, or is given on the command line. The query
@@ -688,14 +685,14 @@ def task_query(io, query_source, library_file, orig_cwd):
                                .format(str(e))),
                          "query:\n" + query_text)
     validate_query(query, query_name)
-    execute_query(io, query, query_name, library_file)
+    execute_query(io, query, query_name, library_dir)
 
 def handle_args(io, args):
     """
     Parse command-line arguments and take the appropriate action.
     """
     literal = False
-    library_file = None
+    library_dir = None
     subcommand = None
     config = {}
     while args:
@@ -710,11 +707,11 @@ def handle_args(io, args):
                 io.print(get_version(), file=io.stderr)
                 return
             elif arg.startswith("--library="):
-                library_file = arg[len("--library="):]
+                library_dir = arg[len("--library="):]
                 args = args[1:]
             elif arg == "--library":
                 if len(args) >= 2:
-                    library_file = args[1]
+                    library_dir = args[1]
                     args.pop(0)
                 else:
                     raise with_usage(
@@ -732,8 +729,8 @@ def handle_args(io, args):
                     error("unrecognized subcommand: {}".format(repr(arg))),
                     usage())
         elif subcommand == "init":
-            if "path" not in config:
-                config["path"] = arg
+            if "directory" not in config:
+                config["directory"] = arg
             else:
                 raise with_usage(
                     error("unexpected argument: {}".format(repr(arg))),
@@ -755,30 +752,31 @@ def handle_args(io, args):
         io.print(get_version(), file=io.stderr)
         return
     if subcommand == "init":
-        task_init(io, path=config.get("path"))
+        task_init(io, directory=config.get("directory"))
         return
-    if library_file is None:
-        library_file = io.environ.get("ETUNES_LIBRARY")
-    if library_file is None:
+    if library_dir is None:
+        library_dir = io.environ.get("ETUNES_LIBRARY")
+    if library_dir is None:
         library_file = locate_dominating_file(io, DEFAULT_LIBRARY_FILENAME)
         if library_file is None:
             raise with_extra(
                 error("cannot find file {} in working or parent directories"
                       .format(repr(DEFAULT_LIBRARY_FILENAME))),
                 ("hint", "to create, run 'etunes init'"))
-    if io.isdir(library_file):
-        library_file = io.join(library_file, DEFAULT_LIBRARY_FILENAME)
+        library_dir = io.dirname(library_file)
+    library_dir = io.realpath(library_dir)
+    library_file = io.join(library_dir, DEFAULT_LIBRARY_FILENAME)
     if not io.isfile(library_file):
         raise error(
             "library file does not exist: {}".format(repr(library_file)))
     orig_cwd = io.getcwd()
-    io.chdir(io.dirname(library_file))
+    io.chdir(library_dir)
     if subcommand == "query":
         if "query_source" not in config:
             raise with_usage(error("no query given"),
                              usage("query"))
         task_query(io, query_source=config["query_source"],
-                   library_file=library_file,
+                   library_dir=library_dir,
                    orig_cwd=orig_cwd)
         return
 
@@ -799,6 +797,8 @@ def main(io, exec_name, args):
             else:
                 lines.append("{}: {}".format(*message))
         io.print("\n".join(lines), file=io.stderr)
+        if io.environ.get("ETUNES_DEBUG"):
+            io.print_exc()
     except Exception:
         io.print_exc()
     return 1
