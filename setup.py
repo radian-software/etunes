@@ -13,7 +13,7 @@ setup(
     ],
     name="etunes",
     scripts=["scripts/etunes"],
-    url="https://github.com/raxod502/etunes",
+    url="https://github.com/radian-software/etunes",
     version="1.0",
     zip_safe=True,
 )

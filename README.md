@@ -1,7 +1,7 @@
 # Deprecated
 
 I became disillusioned with etunes and decided to work on
-[fstunes](https://github.com/raxod502/fstunes) instead.
+[fstunes](https://github.com/radian-software/fstunes) instead.
 
 # Command-line interface
 
